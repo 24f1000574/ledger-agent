@@ -16,7 +16,7 @@ DATA_URL = "https://exam.sanand.workers.dev/questionData?email=24f1000574%40ds.s
 
 # We can accept an AIPROXY_TOKEN or OPENAI_API_KEY
 api_key = os.getenv("AIPROXY_TOKEN") or os.getenv("OPENAI_API_KEY")
-base_url = "https://aiproxy.sanand.workers.dev/openai/v1" if os.getenv("AIPROXY_TOKEN") else None
+base_url = "https://aipipe.org/openai/v1" if os.getenv("AIPROXY_TOKEN") else None
 client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
 # Setup SQLite Database
