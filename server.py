@@ -28,11 +28,25 @@ def setup_db():
     response = httpx.get(DATA_URL, timeout=30.0)
     lines = response.text.strip().split('\n')
     
+    # Fetch rates
+    try:
+        rates_url = DATA_URL.replace("%2Fexport", "%2Frates")
+        rate_resp = httpx.get(rates_url, timeout=30.0)
+        rate_data = rate_resp.json()
+        rates = {"USD": 1.0, "EUR": 1.11, "INR": 0.01245}
+        if isinstance(rate_data, dict):
+            for k, v in rate_data.items():
+                if isinstance(v, (int, float)): rates[k.upper()] = float(v)
+            if "rates" in rate_data and isinstance(rate_data["rates"], dict):
+                for k, v in rate_data["rates"].items():
+                    if isinstance(v, (int, float)): rates[k.upper()] = float(v)
+    except Exception as e:
+        rates = {"USD": 1.0, "EUR": 1.11, "INR": 0.01245}
+    
     # Track latest updated_at for each order id
     orders = {}
     for line in lines:
-        if not line.strip() or line.startswith('---') or line.startswith('Source:'):
-            continue
+        if not line.strip() or line.startswith('---') or line.startswith('Source:'): continue
         try:
             order = json.loads(line)
         except json.JSONDecodeError:
@@ -42,14 +56,10 @@ def setup_db():
         if order_id not in orders:
             orders[order_id] = order
         else:
-            # Parse dates to compare
             curr_updated = datetime.fromisoformat(orders[order_id]['updated_at'].replace('Z', '+00:00'))
             new_updated = datetime.fromisoformat(order['updated_at'].replace('Z', '+00:00'))
             if new_updated > curr_updated:
                 orders[order_id] = order
-
-    # Filter paid orders
-    valid_orders = [o for o in orders.values() if o['status'] == 'paid']
     
     # Create table
     cursor.execute('''
@@ -62,6 +72,7 @@ def setup_db():
             unit_price REAL,
             amount REAL,
             currency TEXT,
+            usd_amount REAL,
             status TEXT,
             created_at TEXT,
             updated_at TEXT,
@@ -72,23 +83,21 @@ def setup_db():
     
     # Insert data
     tz = pytz.timezone('Asia/Kolkata')
-    for o in valid_orders:
-        # Convert created_at to Asia/Kolkata date to easily query by month/year
+    for o in orders.values():
         dt = datetime.fromisoformat(o['created_at'].replace('Z', '+00:00')).astimezone(tz)
-        month = dt.strftime('%B')
-        year = dt.strftime('%Y')
+        usd = float(o['amount']) * rates.get(o['currency'].upper(), 1.0)
         
         cursor.execute('''
-            INSERT INTO ledger (id, customer, region, product, qty, unit_price, amount, currency, status, created_at, updated_at, month, year)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO ledger (id, customer, region, product, qty, unit_price, amount, currency, usd_amount, status, created_at, updated_at, month, year)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             o['id'], o['customer'], o['region'], o['product'], o['qty'],
-            o['unit_price'], o['amount'], o['currency'], o['status'],
-            o['created_at'], o['updated_at'], month, year
+            o['unit_price'], o['amount'], o['currency'], usd, o['status'].lower(),
+            o['created_at'], o['updated_at'], dt.strftime('%B'), dt.strftime('%Y')
         ))
     
     conn.commit()
-    print(f"Loaded {len(valid_orders)} valid paid orders into memory.")
+    print(f"Loaded {len(orders)} current orders into memory.")
 
 setup_db()
 
@@ -116,13 +125,14 @@ We have a table named `ledger` with the following columns:
 - unit_price (REAL)
 - amount (REAL)
 - currency (TEXT)
-- status (TEXT) - all are 'paid'
+- usd_amount (REAL) - the amount converted to USD
+- status (TEXT) - can be 'paid', 'refunded', etc.
 - created_at (TEXT) - ISO date
 - updated_at (TEXT) - ISO date
 - month (TEXT) - Full month name in Asia/Kolkata timezone (e.g., 'March')
 - year (TEXT) - 4-digit year in Asia/Kolkata timezone (e.g., '2026')
 
-Note: "revenue" usually means the sum of `amount`. If asking for total revenue in USD, check `currency = 'USD'`.
+Note: "revenue" usually means the sum of `usd_amount` where status='paid'. Refunds mean status='refunded'.
 Write a valid SQLite query to answer the user's question.
 Return ONLY the SQL query, nothing else, no markdown formatting.
 
