@@ -316,7 +316,7 @@ def answer_question(question):
     # Average order value
     # ---------------------------------------------------------
 
-    if "average order" in q or "average order value" in q:
+    if "average" in q:
 
         paid = [
             o for o in orders
