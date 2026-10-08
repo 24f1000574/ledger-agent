@@ -95,7 +95,11 @@ setup_db()
 class QuestionRequest(BaseModel):
     question: str
 
-@app.post("/")
+@app.get("/{path:path}")
+async def health_check():
+    return {"status": "ok", "message": "Please send a POST request with {'question': '...'} to this endpoint."}
+
+@app.post("/{path:path}")
 async def ask_question(req: QuestionRequest):
     if not api_key:
         raise HTTPException(status_code=500, detail="API key is missing")
